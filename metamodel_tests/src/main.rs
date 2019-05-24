@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use metamodel::{Type, FieldType, Model};
+use metamodel::{Type, Model};
 
 fn main() {
     #[derive(Model)]
@@ -15,12 +15,12 @@ fn main() {
     }
 
     assert_eq!(Test::to_type(), {
-        Type::new(Box::new([
-            FieldType::Int,
-            FieldType::Tuple(Box::new([FieldType::Bool, FieldType::Float])),
-            FieldType::List(Box::new(FieldType::Long)),
-            FieldType::Dict(Box::new(FieldType::Str), Box::new(FieldType::List(Box::new(FieldType::Double)))),
-            FieldType::Str,
+        Type::Tuple(Box::new([
+            Type::Int,
+            Type::Tuple(Box::new([Type::Bool, Type::Float])),
+            Type::List(Box::new(Type::Long)),
+            Type::Dict(Box::new(Type::Str), Box::new(Type::List(Box::new(Type::Double)))),
+            Type::Str,
         ]))
     });
 }

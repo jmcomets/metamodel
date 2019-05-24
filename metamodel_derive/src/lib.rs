@@ -13,13 +13,29 @@ pub fn into_model_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let output: proc_macro2::TokenStream = {
         let name = &ast.ident;
 
-        let fields = {
+        let ty = {
             match ast.data {
                 syn::Data::Struct(data) => {
                     match data.fields {
-                        syn::Fields::Named(fields)   => to_fields(&fields.named),
-                        syn::Fields::Unnamed(fields) => to_fields(&fields.unnamed),
-                        syn::Fields::Unit            => quote! { ::metamodel::FieldType::Unit, },
+                        syn::Fields::Named(fields) => {
+                            let fields = to_fields(&fields.named);
+                            quote! {
+                                ::metamodel::Type::Tuple(Box::new([#fields]))
+                            }
+                        }
+
+                        syn::Fields::Unnamed(fields) => {
+                            let fields = to_fields(&fields.unnamed);
+                            quote! {
+                                ::metamodel::Type::Tuple(Box::new([#fields]))
+                            }
+                        }
+
+                        syn::Fields::Unit => {
+                            quote! {
+                                ::metamodel::Type::Unit
+                            }
+                        },
                     }
                 }
 
@@ -31,7 +47,7 @@ pub fn into_model_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         quote! {
             impl Model for #name {
                 fn to_type() -> Type {
-                    Type::new(Box::new([#fields]))
+                    #ty
                 }
             }
         }
@@ -71,7 +87,7 @@ fn type_to_field_type(ty: &syn::Type) -> proc_macro2::TokenStream {
                 .map(type_to_field_type);
 
             quote! {
-                ::metamodel::FieldType::Tuple(Box::new([
+                ::metamodel::Type::Tuple(Box::new([
                     #( #element_types )*
                 ])),
             }
@@ -110,31 +126,31 @@ fn path_segment_to_field_type(segment: &syn::PathSegment, parent_path: &syn::Pat
     }
 
     if segment_matches(segment, idents!["i8"]) {
-        return quote! { ::metamodel::FieldType::Byte, };
+        return quote! { ::metamodel::Type::Byte, };
     }
 
     if segment_matches(segment, idents!["i32"]) {
-        return quote! { ::metamodel::FieldType::Int, };
+        return quote! { ::metamodel::Type::Int, };
     }
 
     if segment_matches(segment, idents!["i64"]) {
-        return quote! { ::metamodel::FieldType::Long, };
+        return quote! { ::metamodel::Type::Long, };
     }
 
     if segment_matches(segment, idents!["bool"]) {
-        return quote! { ::metamodel::FieldType::Bool, };
+        return quote! { ::metamodel::Type::Bool, };
     }
 
     if segment_matches(segment, idents!["f32"]) {
-        return quote! { ::metamodel::FieldType::Float, };
+        return quote! { ::metamodel::Type::Float, };
     }
 
     if segment_matches(segment, idents!["f64"]) {
-        return quote! { ::metamodel::FieldType::Double, };
+        return quote! { ::metamodel::Type::Double, };
     }
 
     if segment_matches(segment, idents!["String", "str"]) {
-        return quote! { ::metamodel::FieldType::Str, };
+        return quote! { ::metamodel::Type::Str, };
     }
 
     if segment_matches(segment, idents!["Vec", "VecDeque", "LinkedList"]) {
@@ -150,7 +166,7 @@ fn path_segment_to_field_type(segment: &syn::PathSegment, parent_path: &syn::Pat
 
             if let Some(element_type) = element_type {
                 let element_field_type = type_to_field_type(&element_type);
-                return quote! { ::metamodel::FieldType::List(Box::new(#element_field_type)), };
+                return quote! { ::metamodel::Type::List(Box::new(#element_field_type)), };
             }
         }
 
@@ -176,7 +192,7 @@ fn path_segment_to_field_type(segment: &syn::PathSegment, parent_path: &syn::Pat
             if let (Some(key_type), Some(value_type)) = (key_type, value_type) {
                 let key_field_type = type_to_field_type(&key_type);
                 let value_field_type = type_to_field_type(&value_type);
-                return quote! { ::metamodel::FieldType::Dict(Box::new(#key_field_type), Box::new(#value_field_type)), };
+                return quote! { ::metamodel::Type::Dict(Box::new(#key_field_type), Box::new(#value_field_type)), };
             }
         }
 
