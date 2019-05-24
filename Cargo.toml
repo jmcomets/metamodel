@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "metamodel",
+    "metamodel_derive",
+    "metamodel_tests",
+]

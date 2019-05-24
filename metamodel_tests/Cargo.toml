@@ -1,0 +1,9 @@
+[package]
+name = "metamodel_tests"
+version = "0.1.0"
+authors = ["Jean-Marie Comets <jean.marie.comets@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+metamodel = { path = "../metamodel" }
+metamodel_derive = { path = "../metamodel_derive" }
