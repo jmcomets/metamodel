@@ -4,11 +4,11 @@ pub trait Model {
 
 #[derive(Debug, PartialEq)]
 pub struct Type {
-    field_types: Vec<FieldType>,
+    field_types: Box<[FieldType]>,
 }
 
 impl Type {
-    pub fn new(field_types: Vec<FieldType>) -> Self {
+    pub fn new(field_types: Box<[FieldType]>) -> Self {
         Type { field_types }
     }
 
@@ -32,7 +32,7 @@ pub enum FieldType {
     Str,
     List(Box<FieldType>),
     Dict(Box<FieldType>, Box<FieldType>),
-    Tuple(Vec<FieldType>),
+    Tuple(Box<[FieldType]>),
 }
 
 #[derive(Debug, PartialEq)]

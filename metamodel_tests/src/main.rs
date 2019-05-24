@@ -15,12 +15,12 @@ fn main() {
     }
 
     assert_eq!(Test::to_type(), {
-        Type::new(vec![
+        Type::new(Box::new([
             FieldType::Int,
-            FieldType::Tuple(vec![FieldType::Bool, FieldType::Float]),
+            FieldType::Tuple(Box::new([FieldType::Bool, FieldType::Float])),
             FieldType::List(Box::new(FieldType::Long)),
             FieldType::Dict(Box::new(FieldType::Str), Box::new(FieldType::List(Box::new(FieldType::Double)))),
             FieldType::Str,
-        ])
+        ]))
     });
 }

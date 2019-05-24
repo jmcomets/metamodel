@@ -19,7 +19,7 @@ pub fn into_model_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
                     match data.fields {
                         syn::Fields::Named(fields)   => to_fields(&fields.named),
                         syn::Fields::Unnamed(fields) => to_fields(&fields.unnamed),
-                        syn::Fields::Unit            => quote! { vec![] },
+                        syn::Fields::Unit            => quote! { ::metamodel::FieldType::Unit, },
                     }
                 }
 
@@ -31,7 +31,7 @@ pub fn into_model_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         quote! {
             impl Model for #name {
                 fn to_type() -> Type {
-                    Type::new(vec![#fields])
+                    Type::new(Box::new([#fields]))
                 }
             }
         }
@@ -42,140 +42,54 @@ pub fn into_model_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 
 fn to_fields<T>(punctuated: &syn::punctuated::Punctuated<syn::Field, T>) -> proc_macro2::TokenStream {
     punctuated.iter()
-        .map(|field| to_field_type(&field.ty))
+        .map(|field| type_to_field_type(&field.ty))
         .collect()
 }
 
-fn to_field_type(ty: &syn::Type) -> proc_macro2::TokenStream {
+macro_rules! idents {
+    ($($x:expr),*) => {
+        &[
+            $(
+                ::syn::parse_str::<::syn::Ident>($x).unwrap()
+            ),*
+        ]
+    }
+}
+
+fn type_to_field_type(ty: &syn::Type) -> proc_macro2::TokenStream {
     match ty {
-        // TODO map to a list
-        syn::Type::Slice(_slice) => unimplemented!("\"Slice\" types are not supported"),
-        syn::Type::Array(_array) => unimplemented!("\"Array\" types are not supported"),
+        syn::Type::Path(type_path) => {
+            if let Some(ref pair) = type_path.path.segments.last() {
+                path_segment_to_field_type(pair.value(), &type_path.path)
+            } else {
+                unreachable!("empty type {}", PathDisplayExt(&type_path.path))
+            }
+        }
 
         syn::Type::Tuple(type_tuple) => {
-            let mut element_types = vec![];
+            let element_types = type_tuple.elems.iter()
+                .map(type_to_field_type);
 
-            for ty in type_tuple.elems.iter() {
-                element_types.push(to_field_type(ty));
+            quote! {
+                ::metamodel::FieldType::Tuple(Box::new([
+                    #( #element_types )*
+                ])),
             }
-
-            let element_types = quote! { vec![ #( #element_types )* ] };
-            return quote! { ::metamodel::FieldType::Tuple(#element_types), };
         }
 
-        syn::Type::Path(type_path) => {
-            macro_rules! idents {
-                ($($x:expr),*) => {
-                    &[
-                        $(
-                            ::syn::parse_str::<::syn::Ident>($x).unwrap()
-                        ),*
-                    ]
-                }
-            }
+        // TODO map to the list type
+        syn::Type::Array(_array) => unimplemented!("array types are not supported"),
 
-            if let Some(ref pair) = type_path.path.segments.last() {
-                let segment = pair.value();
+        // TODO clarify if reference types can be supported
+        //
+        // To support reference types, ownership needs to be addressed. Things can be tricky to
+        // get right, especially for ser/de features. Slice types probably have the same issue.
+        syn::Type::Reference(_type_reference) => unimplemented!("reference types are not supported"),
 
-                if segment_matches(segment, idents!["i8"]) {
-                    return quote! { ::metamodel::FieldType::Byte, };
-                }
+        // TODO clarify if slice types can be supported (see support for reference types)
+        syn::Type::Slice(_slice) => unimplemented!("slice types are not supported"),
 
-                if segment_matches(segment, idents!["i32"]) {
-                    return quote! { ::metamodel::FieldType::Int, };
-                }
-
-                if segment_matches(segment, idents!["i64"]) {
-                    return quote! { ::metamodel::FieldType::Long, };
-                }
-
-                if segment_matches(segment, idents!["bool"]) {
-                    return quote! { ::metamodel::FieldType::Bool, };
-                }
-
-                if segment_matches(segment, idents!["f32"]) {
-                    return quote! { ::metamodel::FieldType::Float, };
-                }
-
-                if segment_matches(segment, idents!["f64"]) {
-                    return quote! { ::metamodel::FieldType::Double, };
-                }
-
-                if segment_matches(segment, idents!["String", "str"]) {
-                    return quote! { ::metamodel::FieldType::Str, };
-                }
-
-                if segment_matches(segment, idents!["Vec", "VecDeque", "LinkedList"]) {
-                    if let syn::PathArguments::AngleBracketed(ref generic_args) = segment.arguments {
-                        let mut element_type = None;
-
-                        for arg in generic_args.args.iter() {
-                            if let syn::GenericArgument::Type(ty) = arg {
-                                element_type = Some(ty);
-                                break;
-                            }
-                        }
-
-                        if let Some(element_type) = element_type {
-                            let element_field_type = to_field_type(&element_type);
-                            return quote! { ::metamodel::FieldType::List(Box::new(#element_field_type)), };
-                        }
-                    }
-
-                    panic!("unsupported list type {}", PathDisplayExt(&type_path.path));
-                }
-
-                if segment_matches(segment, idents!["HashMap", "BTreeMap"]) {
-                    if let syn::PathArguments::AngleBracketed(ref generic_args) = segment.arguments {
-                        let mut key_type = None;
-                        let mut value_type = None;
-
-                        for arg in generic_args.args.iter() {
-                            if let syn::GenericArgument::Type(ty) = arg {
-                                if key_type.is_some() {
-                                    value_type = Some(ty);
-                                    break;
-                                } else {
-                                    key_type = Some(ty);
-                                }
-                            }
-                        }
-
-                        if let (Some(key_type), Some(value_type)) = (key_type, value_type) {
-                            let key_field_type = to_field_type(&key_type);
-                            let value_field_type = to_field_type(&value_type);
-                            return quote! { ::metamodel::FieldType::Dict(Box::new(#key_field_type), Box::new(#value_field_type)), };
-                        }
-                    }
-
-                    panic!("unsupported map type {}", PathDisplayExt(&type_path.path));
-                }
-
-                if segment_matches(segment, idents!["Box"]) {
-                    if let syn::PathArguments::AngleBracketed(ref generic_args) = segment.arguments {
-                        let mut element_type = None;
-
-                        for arg in generic_args.args.iter() {
-                            if let syn::GenericArgument::Type(ty) = arg {
-                                element_type = Some(ty);
-                                break;
-                            }
-                        }
-
-                        if let Some(element_type) = element_type {
-                            return to_field_type(&element_type);
-                        }
-                    }
-
-                    panic!("unsupported box type {}", PathDisplayExt(&type_path.path));
-                }
-            }
-
-            panic!("unsupported type {}", PathDisplayExt(&type_path.path))
-        }
-
-        syn::Type::Reference(type_reference) => to_field_type(&type_reference.elem),
-
+        // no need to implement these
         syn::Type::Ptr(_type_ptr)                  => panic!("\"Ptr\" types are not supported"),
         syn::Type::BareFn(_type_bare_fn)           => panic!("\"BareFn\" types are not supported"),
         syn::Type::Never(_type_never)              => panic!("\"Never\" types are not supported"),
@@ -187,6 +101,108 @@ fn to_field_type(ty: &syn::Type) -> proc_macro2::TokenStream {
         syn::Type::Macro(_type_macro)              => panic!("\"Macro\" types are not supported"),
         syn::Type::Verbatim(_type_verbatim)        => panic!("\"Verbatim\" types are not supported"),
     }
+}
+
+fn path_segment_to_field_type(segment: &syn::PathSegment, parent_path: &syn::Path) -> proc_macro2::TokenStream {
+    // TODO either convert to signed or extend field types
+    if segment_matches(segment, idents!["u8", "u32", "u64"]) {
+        unimplemented!("unsupported unsigned type {}", PathDisplayExt(parent_path));
+    }
+
+    if segment_matches(segment, idents!["i8"]) {
+        return quote! { ::metamodel::FieldType::Byte, };
+    }
+
+    if segment_matches(segment, idents!["i32"]) {
+        return quote! { ::metamodel::FieldType::Int, };
+    }
+
+    if segment_matches(segment, idents!["i64"]) {
+        return quote! { ::metamodel::FieldType::Long, };
+    }
+
+    if segment_matches(segment, idents!["bool"]) {
+        return quote! { ::metamodel::FieldType::Bool, };
+    }
+
+    if segment_matches(segment, idents!["f32"]) {
+        return quote! { ::metamodel::FieldType::Float, };
+    }
+
+    if segment_matches(segment, idents!["f64"]) {
+        return quote! { ::metamodel::FieldType::Double, };
+    }
+
+    if segment_matches(segment, idents!["String", "str"]) {
+        return quote! { ::metamodel::FieldType::Str, };
+    }
+
+    if segment_matches(segment, idents!["Vec", "VecDeque", "LinkedList"]) {
+        if let syn::PathArguments::AngleBracketed(ref generic_args) = segment.arguments {
+            let mut element_type = None;
+
+            for arg in generic_args.args.iter() {
+                if let syn::GenericArgument::Type(ty) = arg {
+                    element_type = Some(ty);
+                    break;
+                }
+            }
+
+            if let Some(element_type) = element_type {
+                let element_field_type = type_to_field_type(&element_type);
+                return quote! { ::metamodel::FieldType::List(Box::new(#element_field_type)), };
+            }
+        }
+
+        panic!("unsupported list type {}", PathDisplayExt(parent_path));
+    }
+
+    if segment_matches(segment, idents!["HashMap", "BTreeMap"]) {
+        if let syn::PathArguments::AngleBracketed(ref generic_args) = segment.arguments {
+            let mut key_type = None;
+            let mut value_type = None;
+
+            for arg in generic_args.args.iter() {
+                if let syn::GenericArgument::Type(ty) = arg {
+                    if key_type.is_some() {
+                        value_type = Some(ty);
+                        break;
+                    } else {
+                        key_type = Some(ty);
+                    }
+                }
+            }
+
+            if let (Some(key_type), Some(value_type)) = (key_type, value_type) {
+                let key_field_type = type_to_field_type(&key_type);
+                let value_field_type = type_to_field_type(&value_type);
+                return quote! { ::metamodel::FieldType::Dict(Box::new(#key_field_type), Box::new(#value_field_type)), };
+            }
+        }
+
+        panic!("unsupported map type {}", PathDisplayExt(parent_path));
+    }
+
+    if segment_matches(segment, idents!["Box"]) {
+        if let syn::PathArguments::AngleBracketed(ref generic_args) = segment.arguments {
+            let mut element_type = None;
+
+            for arg in generic_args.args.iter() {
+                if let syn::GenericArgument::Type(ty) = arg {
+                    element_type = Some(ty);
+                    break;
+                }
+            }
+
+            if let Some(element_type) = element_type {
+                return type_to_field_type(&element_type);
+            }
+        }
+
+        panic!("unsupported box type {}", PathDisplayExt(parent_path));
+    }
+
+    panic!("unsupported type {}", PathDisplayExt(parent_path))
 }
 
 struct PathDisplayExt<'a>(&'a syn::Path);
@@ -202,12 +218,4 @@ fn segment_matches<'a, T>(segment: &syn::PathSegment, candidates: T) -> bool
 {
     candidates.into_iter()
         .any(|ident| &segment.ident == ident)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }
